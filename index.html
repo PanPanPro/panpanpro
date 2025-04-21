@@ -1,0 +1,469 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>盼盼老师</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+    <div id="app" class="container mx-auto p-4 max-w-3xl">
+        <!-- Main Page -->
+        <div id="main-page" class="text-center">
+            <h1 class="text-3xl font-bold mb-4">盼盼老师</h1>
+            <p class="mb-4 text-lg">你好八年级6班的同学，我是盼盼。接下来的时间里，我会陪你一起复习英语单词，帮助你巩固记忆。你准备好了吗？我们开始吧！</p>
+            <button id="practice-btn" class="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600">练习模式</button>
+            <button id="test-btn" class="bg-green-500 text-white px-4 py-2 rounded mr-2 hover:bg-green-600">考试</button>
+            <button id="refresh-btn" class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600">刷新</button>
+        </div>
+
+        <!-- Notification -->
+        <div id="notification" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+            <div class="bg-white p-6 rounded shadow-lg text-center">
+                <p class="mb-4">练习模式所有单词已刷新！</p>
+                <button id="notification-ok" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">好的</button>
+            </div>
+        </div>
+
+        <!-- Practice Mode -->
+        <div id="practice-mode" class="hidden">
+            <h2 class="text-2xl font-bold mb-4">练习模式</h2>
+            <div id="progress" class="mb-4"></div>
+            <div id="practice-items"></div>
+            <button id="check-answers" class="bg-blue-500 text-white px-4 py-2 rounded mt-4 hover:bg-blue-600">检查答案</button>
+            <button id="next-page" class="bg-green-500 text-white px-4 py-2 rounded mt-4 ml-2 hover:bg-green-600 hidden">下一页</button>
+            <button id="back-to-main" class="bg-gray-500 text-white px-4 py-2 rounded mt-4 ml-2 hover:bg-gray-600">返回主页</button>
+        </div>
+
+        <!-- Test Mode -->
+        <div id="test-mode" class="hidden">
+            <h2 class="text-2xl font-bold mb-4">考试</h2>
+            <div id="test-items"></div>
+            <button id="submit-test" class="bg-blue-500 text-white px-4 py-2 rounded mt-4 hover:bg-blue-600">提交考试</button>
+            <button id="back-to-main-test" class="bg-gray-500 text-white px-4 py-2 rounded mt-4 ml-2 hover:bg-gray-600">返回主页</button>
+        </div>
+
+        <!-- Test Results -->
+        <div id="test-results" class="hidden">
+            <h2 class="text-2xl font-bold mb-4">考试结果</h2>
+            <div id="results-content"></div>
+            <button id="redo-test" class="bg-blue-500 text-white px-4 py-2 rounded mt-4 hover:bg-blue-600">重新考试</button>
+            <button id="back-to-main-results" class="bg-gray-500 text-white px-4 py-2 rounded mt-4 ml-2 hover:bg-gray-600">返回主页</button>
+        </div>
+    </div>
+
+    <script>
+        const vocabulary = [
+            { word: "desert", meaning: "沙漠", pos: "名词", example: "The camel crossed the vast desert." },
+            { word: "population", meaning: "人口; 人口数量", pos: "名词", example: "The population of the city is growing rapidly." },
+            { word: "Asia", meaning: "亚洲", pos: "名词", example: "Asia is the largest continent." },
+            { word: "asian", meaning: "亚洲的/亚洲人", pos: "形容词/名词", example: "She enjoys Asian cuisine." },
+            { word: "feel free", meaning: "（可以）随便（做某事）", pos: "短语", example: "Feel free to ask any questions." },
+            { word: "tour", meaning: "旅行; 旅游", pos: "名词/动词", example: "We went on a tour of Europe." },
+            { word: "tourist", meaning: "旅行者; 观光者", pos: "名词", example: "The city is popular among tourists." },
+            { word: "wall", meaning: "墙", pos: "名词", example: "The wall was painted blue." },
+            { word: "amazing", meaning: "令人惊奇的; 令人惊叹的", pos: "形容词", example: "The view from the mountain was amazing." },
+            { word: "ancient", meaning: "古代的; 古老的", pos: "形容词", example: "The ancient ruins attracted many visitors." },
+            { word: "protect", meaning: "保护; 防护", pos: "动词", example: "We must protect the environment." },
+            { word: "wide", meaning: "宽的; 宽阔的", pos: "形容词", example: "The river is very wide here." },
+            { word: "as far as I know", meaning: "就我所知", pos: "短语", example: "As far as I know, the event is still on." },
+            { word: "man-made", meaning: "人造的", pos: "形容词", example: "The lake is a man-made structure." },
+            { word: "achievement", meaning: "成就; 成绩", pos: "名词", example: "Winning the award was a great achievement." },
+            { word: "southwestern", meaning: "西南的; 西南方向的", pos: "形容词", example: "The southwestern region is known for its deserts." },
+            { word: "thick", meaning: "厚的；浓的", pos: "形容词", example: "The book has a thick cover." },
+            { word: "include", meaning: "包括；包含", pos: "动词", example: "The package includes a free gift." },
+            { word: "freezing", meaning: "极冷的；冰冻的", pos: "形容词", example: "The weather is freezing today." },
+            { word: "condition", meaning: "条件；状况", pos: "名词", example: "The car is in excellent condition." },
+            { word: "take in", meaning: "吸人", pos: "短语动词", example: "She paused to take in the beautiful scenery." },
+            { word: "succeed", meaning: "实现目标；成功", pos: "动词", example: "Hard work helped her succeed." },
+            { word: "challenge", meaning: "挑战；考验", pos: "名词/动词", example: "The puzzle was a real challenge." },
+            { word: "in the face of", meaning: "面对（问题、困难等）", pos: "短语", example: "She stayed calm in the face of danger." },
+            { word: "achieve", meaning: "达到；完成；成功", pos: "动词", example: "He worked hard to achieve his goals." },
+            { word: "force", meaning: "力量", pos: "名词/动词", example: "The force of the wind was strong." },
+            { word: "nature", meaning: "自然界；大自然", pos: "名词", example: "I love spending time in nature." },
+            { word: "even though", meaning: "即使；虽然", pos: "连词", example: "Even though it was raining, we went hiking." },
+            { word: "ocean", meaning: "大海；海洋", pos: "名词", example: "The ocean is home to many creatures." },
+            { word: "the Pacific Ocean", meaning: "太平洋", pos: "名词", example: "The Pacific Ocean is the largest in the world." },
+            { word: "centimeter", meaning: "厘米", pos: "名词", example: "The ruler is 30 centimeters long." },
+            { word: "weigh", meaning: "重量是...；称...的重量", pos: "动词", example: "The package weighs 5 kilograms." },
+            { word: "birth", meaning: "出生；诞生", pos: "名词", example: "The birth of the baby was a joyful event." },
+            { word: "at birth", meaning: "出生时", pos: "短语", example: "The cub was small at birth." },
+            { word: "up to", meaning: "达到（某重量、程度等）；至多有；不多于", pos: "短语", example: "The room can hold up to 50 people." },
+            { word: "adult", meaning: "成年的（形容词）；成人的（形容词）；成人（名词）；成年动物（名词）", pos: "形容词/名词", example: "The adult ticket costs more." },
+            { word: "bamboo", meaning: "竹子", pos: "名词", example: "Pandas eat bamboo." },
+            { word: "endangered", meaning: "濒危的", pos: "形容词", example: "The tiger is an endangered species." },
+            { word: "research", meaning: "研究；调查", pos: "名词/动词", example: "She conducts research on climate change." },
+            { word: "keeper", meaning: "饲养员；保管人", pos: "名词", example: "The zoo keeper fed the animals." },
+            { word: "awake", meaning: "醒着", pos: "形容词", example: "I was awake all night studying." },
+            { word: "excitement", meaning: "激动；兴奋", pos: "名词", example: "The excitement of the game was intense." },
+            { word: "walk into", meaning: "走路时撞着", pos: "短语动词", example: "He didn't see the pole and walked into it." },
+            { word: "fall over", meaning: "绊倒", pos: "短语动词", example: "She tripped and fell over." },
+            { word: "or so", meaning: "大约", pos: "短语", example: "The trip takes an hour or so." },
+            { word: "illness", meaning: "疾病；病", pos: "名词", example: "He recovered from a serious illness." },
+            { word: "wild", meaning: "野生性的", pos: "形容词", example: "The wild animals roamed freely." },
+            { word: "government", meaning: "政府；内阁", pos: "名词", example: "The government passed a new law." },
+            { word: "whale", meaning: "鲸", pos: "名词", example: "The whale surfaced to breathe." },
+            { word: "oil", meaning: "油；食用油；石油", pos: "名词", example: "The recipe calls for olive oil." },
+            { word: "protection", meaning: "保护；保卫", pos: "名词", example: "The forest is under protection." },
+            { word: "huge", meaning: "巨大的；极多的", pos: "形容词", example: "The elephant is a huge animal." },
+            { word: "treasure", meaning: "珍宝; 财富", pos: "名词", example: "The pirates searched for hidden treasure." },
+            { word: "island", meaning: "岛", pos: "名词", example: "We vacationed on a tropical island." },
+            { word: "full of", meaning: "满是...的; (有)大量的", pos: "短语", example: "The room was full of laughter." },
+            { word: "classic", meaning: "名著作品; 名著", pos: "名词/形容词", example: "I read a classic novel." },
+            { word: "page", meaning: "页; 面; 张", pos: "名词", example: "Turn to page 10." },
+            { word: "hurry", meaning: "匆忙; 赶快", pos: "名词/动词", example: "We need to hurry to catch the bus." },
+            { word: "hurry up", meaning: "赶快; 急忙", pos: "短语动词", example: "Hurry up, or we'll be late!" },
+            { word: "due", meaning: "预期; 预定", pos: "形容词", example: "The project is due next week." },
+            { word: "ship", meaning: "船", pos: "名词/动词", example: "The ship sailed across the ocean." },
+            { word: "tool", meaning: "工具", pos: "名词", example: "A hammer is a useful tool." },
+            { word: "gun", meaning: "枪; 炮", pos: "名词", example: "The soldier carried a gun." },
+            { word: "mark", meaning: "标记; 符号; 分数", pos: "名词/动词", example: "She got a high mark on the test." },
+            { word: "sand", meaning: "沙滩; 沙", pos: "名词", example: "The children played on the sand." },
+            { word: "cannibal", meaning: "食人肉者", pos: "名词", example: "The story featured a cannibal tribe." },
+            { word: "towards", meaning: "朝; 向着", pos: "介词", example: "We walked towards the park." },
+            { word: "land", meaning: "陆地; 大地", pos: "名词/动词", example: "The plane landed safely." },
+            { word: "fiction", meaning: "小说", pos: "名词", example: "She enjoys reading fiction." },
+            { word: "science fiction", meaning: "科幻小说", pos: "名词", example: "Science fiction is my favorite genre." },
+            { word: "technology", meaning: "科技; 工艺", pos: "名词", example: "Technology has changed our lives." },
+            { word: "French", meaning: "法语", pos: "名词/形容词", example: "She speaks French fluently." },
+            { word: "pop", meaning: "流行音乐; 流行歌曲", pos: "名词/形容词", example: "I listen to pop music." },
+            { word: "rock", meaning: "摇滚乐", pos: "名词", example: "The band plays rock music." },
+            { word: "band", meaning: "乐队", pos: "名词", example: "The band performed live." },
+            { word: "country music", meaning: "乡村音乐", pos: "名词", example: "He loves country music." },
+            { word: "forever", meaning: "永远", pos: "副词", example: "I will love you forever." },
+            { word: "abroad", meaning: "在国外; 到国外", pos: "副词", example: "She studied abroad for a year." },
+            { word: "actually", meaning: "真实地; 事实上", pos: "副词", example: "I actually enjoyed the movie." },
+            { word: "ever since", meaning: "自从", pos: "短语", example: "I've been happy ever since I moved here." },
+            { word: "fan", meaning: "迷; 狂热爱好者", pos: "名词", example: "He's a big fan of soccer." },
+            { word: "southern", meaning: "南方的", pos: "形容词", example: "The southern states are warm." },
+            { word: "modern", meaning: "现代的; 当代的", pos: "形容词", example: "The museum has modern art." },
+            { word: "success", meaning: "成功", pos: "名词", example: "Her business is a success." },
+            { word: "belong", meaning: "属于; 归属", pos: "动词", example: "This book belongs to me." },
+            { word: "one another", meaning: "互相", pos: "短语", example: "They helped one another." },
+            { word: "laughter", meaning: "笑; 笑声", pos: "名词", example: "The room was filled with laughter." },
+            { word: "beauty", meaning: "美; 美丽", pos: "名词", example: "The sunset's beauty was breathtaking." },
+            { word: "million", meaning: "一百万", pos: "名词", example: "The city has a population of one million." },
+            { word: "record", meaning: "唱片; 记录; 录制; 录音", pos: "名词/动词", example: "She set a new world record." },
+            { word: "introduce", meaning: "介绍; 引见", pos: "动词", example: "Let me introduce my friend." },
+            { word: "line", meaning: "行; 排", pos: "名词/动词", example: "We stood in a long line." },
+            { word: "amusement", meaning: "娱乐; 游戏", pos: "名词", example: "The park offers plenty of amusement." },
+            { word: "amusement park", meaning: "游乐场", pos: "名词", example: "We visited an amusement park." },
+            { word: "somewhere", meaning: "在某处; 到某处", pos: "副词", example: "Let's go somewhere fun." },
+            { word: "camera", meaning: "照相机; 摄像机", pos: "名词", example: "I bought a new camera." },
+            { word: "invention", meaning: "发明; 发明物", pos: "名词", example: "The telephone was a great invention." },
+            { word: "invent", meaning: "发明; 创造", pos: "动词", example: "He invented a new gadget." },
+            { word: "unbelievable", meaning: "难以置信的; 不真实的", pos: "形容词", example: "The news was unbelievable." },
+            { word: "progress", meaning: "进步; 进展", pos: "名词/动词", example: "She made great progress in math." },
+            { word: "rapid", meaning: "迅速的；快速的", pos: "形容词", example: "The rapid growth surprised everyone." },
+            { word: "unusual", meaning: "非寻常的；不平常的", pos: "形容词", example: "The weather is unusual today." },
+            { word: "toilet", meaning: "厕所；盥洗室", pos: "名词", example: "The toilet is down the hall." },
+            { word: "encourage", meaning: "鼓励", pos: "动词", example: "Teachers encourage students to try hard." },
+            { word: "social", meaning: "社会的", pos: "形容词", example: "Social media is popular." },
+            { word: "peaceful", meaning: "和平的；安宁的", pos: "形容词", example: "The village is peaceful." },
+            { word: "tea", meaning: "茶", pos: "名词", example: "Would you like some tea?" },
+            { word: "performance", meaning: "表演；演出", pos: "名词", example: "The performance was amazing." },
+            { word: "perfect", meaning: "完美的；完全的", pos: "形容词", example: "The plan was perfect." },
+            { word: "tea set", meaning: "茶具", pos: "名词", example: "She bought a beautiful tea set." },
+            { word: "itself", meaning: "它自己", pos: "代词", example: "The cat cleaned itself." },
+            { word: "collect", meaning: "收集；采集", pos: "动词", example: "He collects rare coins." },
+            { word: "a couple of", meaning: "两三个；几个", pos: "短语", example: "I have a couple of books to read." },
+            { word: "German", meaning: "德语；德国人", pos: "名词/形容词", example: "She speaks German fluently." },
+            { word: "theme", meaning: "主题", pos: "名词", example: "The party had a beach theme." },
+            { word: "ride", meaning: "供乘客骑乘的游乐设施；骑马", pos: "名词/动词", example: "The roller coaster is a fun ride." },
+            { word: "province", meaning: "省", pos: "名词", example: "She lives in a northern province." },
+            { word: "thousands", meaning: "数千", pos: "名词", example: "Thousands of people attended the event." },
+            { word: "on the one hand", meaning: "一方面", pos: "短语", example: "On the one hand, it's expensive, but it's worth it." },
+            { word: "on the other hand", meaning: "另一方面", pos: "短语", example: "On the other hand, we could save money." },
+            { word: "safe", meaning: "安全的；无危险的", pos: "形容词", example: "The area is safe for kids." },
+            { word: "simply", meaning: "仅仅；只是；显然；不加思索地", pos: "副词", example: "I simply don't understand." },
+            { word: "fear", meaning: "害怕；恐惧", pos: "名词/动词", example: "She has a fear of heights." },
+            { word: "whether", meaning: "不管……（是否）；或者……（或者）", pos: "连词", example: "I wonder whether it will rain." },
+            { word: "Indian", meaning: "印度人 印度的", pos: "名词/形容词", example: "Indian food is delicious." },
+            { word: "Japanese", meaning: "日本的；日本人的；日语的", pos: "名词/形容词", example: "She studies Japanese culture." },
+            { word: "fox", meaning: "狐狸", pos: "名词", example: "The fox ran into the forest." },
+            { word: "all year round", meaning: "一年到头；常年；全年", pos: "短语", example: "The shop is open all year round." },
+            { word: "equator", meaning: "赤道", pos: "名词", example: "The equator divides the Earth." },
+            { word: "whenever", meaning: "在任何……的时候；无论什么时候", pos: "连词", example: "Visit whenever you like." },
+            { word: "spring", meaning: "春天", pos: "名词", example: "Spring is my favorite season." },
+            { word: "mostly", meaning: "主要地；通常", pos: "副词", example: "The audience was mostly students." },
+            { word: "location", meaning: "地点；位置", pos: "名词", example: "The location of the party is secret." },
+            { word: "yard", meaning: "院子", pos: "名词", example: "The kids played in the yard." },
+            { word: "yard sale", meaning: "庭院拍卖会", pos: "名词", example: "We found treasures at the yard sale." },
+            { word: "sweet", meaning: "甜蜜的; 甜的; 含糖的", pos: "形容词", example: "The cake is very sweet." },
+            { word: "memory", meaning: "记忆; 回忆", pos: "名词", example: "I have fond memories of childhood." },
+            { word: "cent", meaning: "分; 分币", pos: "名词", example: "The candy costs 50 cents." },
+            { word: "toy", meaning: "玩具", pos: "名词", example: "The child played with a toy car." },
+            { word: "bear", meaning: "熊", pos: "名词", example: "The bear lives in the forest." },
+            { word: "maker", meaning: "生产者; 制订者", pos: "名词", example: "The maker of the film is famous." },
+            { word: "bread maker", meaning: "面包机", pos: "名词", example: "She bought a new bread maker." },
+            { word: "scarf", meaning: "围巾; 披巾; 头巾", pos: "名词", example: "She wore a warm scarf." },
+            { word: "soft", meaning: "软的; 柔软的", pos: "形容词", example: "The blanket is soft." },
+            { word: "soft toy", meaning: "软体玩具; 有弹性玩具", pos: "名词", example: "The child hugged a soft toy." },
+            { word: "check", meaning: "检查; 审查", pos: "动词/名词", example: "Please check your answers." },
+            { word: "check out", meaning: "查看; 观察", pos: "短语动词", example: "Check out this new book!" },
+            { word: "board", meaning: "板; 木板", pos: "名词", example: "We need a wooden board." },
+            { word: "board game", meaning: "棋类游戏", pos: "名词", example: "We played a board game." },
+            { word: "junior", meaning: "地位低下的", pos: "形容词/名词", example: "He's a junior employee." },
+            { word: "junior high school", meaning: "初级中学", pos: "名词", example: "She attends junior high school." },
+            { word: "clear", meaning: "清理; 清除", pos: "动词/形容词", example: "Please clear the table." },
+            { word: "clear out", meaning: "清理; 去掉", pos: "短语动词", example: "We need to clear out the garage." },
+            { word: "bedroom", meaning: "卧室", pos: "名词", example: "The bedroom is upstairs." },
+            { word: "no longer", meaning: "不再; 不复", pos: "短语", example: "I no longer live there." },
+            { word: "own", meaning: "拥有", pos: "动词/形容词", example: "I own a small house." },
+            { word: "railway", meaning: "铁路; 铁道", pos: "名词", example: "The railway connects two cities." },
+            { word: "part", meaning: "离开; 分开", pos: "动词/名词", example: "We parted ways after the meeting." },
+            { word: "part with", meaning: "放弃; 交出", pos: "短语动词", example: "I hate to part with my old books." },
+            { word: "certain", meaning: "某种; 某事; 某人; 确定的", pos: "形容词", example: "I'm certain of the answer." },
+            { word: "as for", meaning: "至于; 关于", pos: "短语", example: "As for the plan, I'm not sure." },
+            { word: "honest", meaning: "诚实的", pos: "形容词", example: "She is an honest person." },
+            { word: "to be honest", meaning: "说实话", pos: "短语", example: "To be honest, I didn't like the movie." },
+            { word: "while", meaning: "一段时间", pos: "名词/连词", example: "We waited for a while." },
+            { word: "truthful", meaning: "诚实的", pos: "形容词", example: "He gave a truthful answer." },
+            { word: "hometown", meaning: "家乡", pos: "名词", example: "I miss my hometown." },
+            { word: "search", meaning: "搜索；搜查", pos: "动词/名词", example: "I need to search for my keys." },
+            { word: "among", meaning: "在……之中", pos: "介词", example: "She stood among friends." },
+            { word: "crayon", meaning: "蜡笔", pos: "名词", example: "The child drew with a crayon." },
+            { word: "shame", meaning: "羞耻；羞愧", pos: "名词", example: "He felt shame for his actions." },
+            { word: "nowadays", meaning: "如今；现在", pos: "副词", example: "Nowadays, everyone uses smartphones." },
+            { word: "count", meaning: "数", pos: "动词/名词", example: "Count the number of books." },
+            { word: "regard", meaning: "看作……", pos: "动词/名词", example: "I regard her as a friend." },
+            { word: "according", meaning: "按照……；根据……", pos: "介词", example: "According to the news, it will rain." },
+            { word: "opposite", meaning: "对面的；对立的", pos: "形容词/名词", example: "The house is opposite the park." },
+            { word: "especially", meaning: "尤其是；特别", pos: "副词", example: "I love chocolate, especially dark chocolate." },
+            { word: "childhood", meaning: "童年", pos: "名词", example: "My childhood was full of fun." },
+            { word: "consider", meaning: "考虑；认为", pos: "动词", example: "Please consider my suggestion." },
+            { word: "close", meaning: "亲密的；亲近的", pos: "形容词/动词", example: "We are close friends." },
+            { word: "close to", meaning: "几乎；接近", pos: "短语", example: "The score was close to perfect." },
+            { word: "hold", meaning: "握住；抓住", pos: "动词", example: "Hold the rope tightly." }
+        ];
+
+        let currentPage = 0;
+        let practiceWords = [];
+        let testWords = [];
+        const wordsPerPage = 10;
+        const testWordCount = 20;
+
+        function shuffle(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function getFirstLetterHint(word) {
+            return word.split(" ").map(w => w[0] + "_".repeat(w.length - 1)).join(" ");
+        }
+
+        function getWordCount(word) {
+            return word.split(" ").length;
+        }
+
+        function highlightWord(sentence, word) {
+            const regex = new RegExp(`\\b${word}\\b`, "gi");
+            return sentence.replace(regex, `<span class="bg-yellow-200">${word}</span>`);
+        }
+
+        function resetPracticeMode() {
+            practiceWords = shuffle([...vocabulary]);
+            currentPage = 0;
+        }
+
+        function showNotification() {
+            $("#notification").removeClass("hidden");
+        }
+
+        function hideNotification() {
+            $("#notification").addClass("hidden");
+        }
+
+        function generatePracticePage() {
+            const start = currentPage * wordsPerPage;
+            const pageWords = practiceWords.slice(start, start + wordsPerPage);
+            let html = "";
+            pageWords.forEach((item, index) => {
+                html += `
+                    <div class="mb-4 p-4 bg-white rounded shadow">
+                        <p class="font-bold">${item.meaning}</p>
+                        <p class="text-sm text-gray-600">词性: ${item.pos} | 单词数: ${getWordCount(item.word)}</p>
+                        <input type="text" class="border p-2 w-full mt-2" data-index="${index}" placeholder="输入英文单词">
+                        <div class="mt-2">
+                            <button class="first-letter-hint text-blue-500 underline" data-index="${index}">首字母提示</button>
+                        </div>
+                        <div class="first-letter hidden mt-2 text-gray-700" data-index="${index}">${getFirstLetterHint(item.word)}</div>
+                        <div class="example-sentence hidden mt-2 text-gray-700" data-index="${index}">${highlightWord(item.example, item.word)}</div>
+                        <div class="result hidden mt-2"></div>
+                    </div>`;
+            });
+            $("#practice-items").html(html);
+            const totalPages = Math.ceil(practiceWords.length / wordsPerPage);
+            $("#progress").text(`第 ${currentPage + 1} 页，共 ${totalPages} 页 | 剩余 ${totalPages - currentPage - 1} 页`);
+        }
+
+        function generateTest() {
+            testWords = shuffle([...vocabulary]).slice(0, testWordCount);
+            let html = "";
+            testWords.forEach((item, index) => {
+                html += `
+                    <div class="mb-4 p-4 bg-white rounded shadow">
+                        <p class="font-bold">${item.meaning}</p>
+                        <p class="text-sm text-gray-600">词性: ${item.pos} | 单词数: ${getWordCount(item.word)}</p>
+                        <input type="text" class="border p-2 w-full mt-2" data-index="${index}" placeholder="输入英文单词">
+                    </div>`;
+            });
+            $("#test-items").html(html);
+        }
+
+        function pronounce(word) {
+            const utterance = new SpeechSynthesisUtterance(word);
+            window.speechSynthesis.speak(utterance);
+        }
+
+        $(document).ready(function() {
+            resetPracticeMode();
+
+            $("#practice-btn").click(function() {
+                $("#main-page").addClass("hidden");
+                $("#practice-mode").removeClass("hidden");
+                generatePracticePage();
+            });
+
+            $("#test-btn").click(function() {
+                $("#main-page").addClass("hidden");
+                $("#test-mode").removeClass("hidden");
+                generateTest();
+            });
+
+            $("#refresh-btn").click(function() {
+                resetPracticeMode();
+                showNotification();
+            });
+
+            $("#notification-ok").click(function() {
+                hideNotification();
+            });
+
+            $(document).on("click", ".first-letter-hint", function() {
+                const index = $(this).data("index");
+                $(`.first-letter[data-index=${index}]`).toggleClass("hidden");
+            });
+
+            $("#check-answers").click(function() {
+                const start = currentPage * wordsPerPage;
+                const pageWords = practiceWords.slice(start, start + wordsPerPage);
+                let allCorrect = true;
+                $("#practice-items input").each(function() {
+                    const index = $(this).data("index");
+                    const userInput = $(this).val().trim().toLowerCase();
+                    const correctWord = pageWords[index].word.toLowerCase();
+                    const resultDiv = $(this).siblings(".result");
+                    const exampleDiv = $(this).siblings(".example-sentence");
+                    resultDiv.removeClass("hidden");
+                    exampleDiv.removeClass("hidden");
+                    if (userInput === correctWord) {
+                        resultDiv.html(`正确！ <span class="pronounce cursor-pointer text-blue-500 underline" data-word="${correctWord}">🔊 发音</span>`);
+                        resultDiv.addClass("text-green-500");
+                    } else {
+                        allCorrect = false;
+                        resultDiv.html(`错误。正确单词: ${correctWord} <span class="pronounce cursor-pointer text-blue-500 underline" data-word="${correctWord}">🔊 发音</span>`);
+                        resultDiv.addClass("text-red-500");
+                    }
+                });
+                if (allCorrect) {
+                    $("#next-page").removeClass("hidden");
+                }
+            });
+
+            $(document).on("click", ".pronounce", function() {
+                const word = $(this).data("word");
+                pronounce(word);
+            });
+
+            $("#next-page").click(function() {
+                currentPage++;
+                if (currentPage * wordsPerPage >= practiceWords.length) {
+                    alert("恭喜！你已完成所有练习页面。");
+                    resetPracticeMode();
+                    $("#practice-mode").addClass("hidden");
+                    $("#main-page").removeClass("hidden");
+                } else {
+                    generatePracticePage();
+                    $("#next-page").addClass("hidden");
+                }
+            });
+
+            $("#submit-test").click(function() {
+                let correctCount = 0;
+                let html = "";
+                $("#test-items input").each(function() {
+                    const index = $(this).data("index");
+                    const userInput = $(this).val().trim().toLowerCase();
+                    const correctWord = testWords[index].word.toLowerCase();
+                    if (userInput === correctWord) {
+                        correctCount++;
+                        html += `<p class="text-green-500">${testWords[index].meaning}: ${correctWord} (正确)</p>`;
+                    } else {
+                        html += `<p class="text-red-500">${testWords[index].meaning}: 你的答案: ${userInput}, 正确答案: ${correctWord}</p>`;
+                    }
+                });
+                html = `<p>你答对了 ${correctCount} 道题，共 ${testWordCount} 道题。</p>` + html;
+                $("#results-content").html(html);
+                $("#test-mode").addClass("hidden");
+                $("#test-results").removeClass("hidden");
+            });
+
+            $("#redo-test").click(function() {
+                $("#test-results").addClass("hidden");
+                $("#test-mode").removeClass("hidden");
+                generateTest();
+            });
+
+            $("#back-to-main, #back-to-main-test, #back-to-main-results").click(function() {
+                $("#practice-mode, #test-mode, #test-results").addClass("hidden");
+                $("#main-page").removeClass("hidden");
+                currentPage = 0;
+            });
+        });
+    </script>
+</body>
+</html>
